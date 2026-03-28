@@ -1,1 +1,1 @@
-org.springframework.boot.autoconfigure.EnableAutoConfiguration=com.example.cachesync.config.CacheSyncAutoConfiguration
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=org.cache.sync.config.CacheSyncAutoConfiguration

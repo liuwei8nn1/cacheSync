@@ -1,14 +1,14 @@
-package com.example.cachesync;
+package org.cache.sync;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.example.cachesync.config.CacheSyncProperties;
-import com.example.cachesync.core.CacheSyncConsumer;
-import com.example.cachesync.core.CacheSyncPublisher;
-import com.example.cachesync.metrics.CacheSyncMetrics;
+import org.cache.sync.config.CacheSyncProperties;
+import org.cache.sync.core.CacheSyncConsumer;
+import org.cache.sync.core.CacheSyncPublisher;
+import org.cache.sync.metrics.CacheSyncMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

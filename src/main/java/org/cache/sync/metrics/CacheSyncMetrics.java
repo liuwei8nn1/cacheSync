@@ -1,4 +1,4 @@
-package com.example.cachesync.metrics;
+package org.cache.sync.metrics;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;

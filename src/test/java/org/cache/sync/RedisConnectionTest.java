@@ -1,4 +1,4 @@
-package com.example.cachesync;
+package org.cache.sync;
 
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;

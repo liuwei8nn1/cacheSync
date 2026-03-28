@@ -1,4 +1,4 @@
-package com.example.cachesync.core;
+package org.cache.sync.core;
 
 import java.util.Map;
 

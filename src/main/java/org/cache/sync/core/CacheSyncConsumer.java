@@ -1,7 +1,7 @@
-package com.example.cachesync.core;
+package org.cache.sync.core;
 
-import com.example.cachesync.config.CacheSyncProperties;
-import com.example.cachesync.metrics.CacheSyncMetrics;
+import org.cache.sync.config.CacheSyncProperties;
+import org.cache.sync.metrics.CacheSyncMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;

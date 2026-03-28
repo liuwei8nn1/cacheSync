@@ -1,9 +1,9 @@
-package com.example.cachesync;
+package org.cache.sync;
 
 import java.util.Map;
 
-import com.example.cachesync.config.CacheSyncAutoConfiguration;
-import com.example.cachesync.core.CacheCleanHandler;
+import org.cache.sync.config.CacheSyncAutoConfiguration;
+import org.cache.sync.core.CacheCleanHandler;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

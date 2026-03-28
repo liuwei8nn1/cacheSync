@@ -1,4 +1,4 @@
-package com.example.cachesync.annotation;
+package org.cache.sync.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

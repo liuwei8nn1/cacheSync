@@ -1,12 +1,11 @@
-package com.example.cachesync.core;
+package org.cache.sync.core;
 
 import java.util.HashMap;
 import java.util.Map;
 
-import com.example.cachesync.config.CacheSyncProperties;
-import com.example.cachesync.metrics.CacheSyncMetrics;
+import org.cache.sync.config.CacheSyncProperties;
+import org.cache.sync.metrics.CacheSyncMetrics;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 

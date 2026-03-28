@@ -1,4 +1,4 @@
-package com.example.cachesync.config;
+package org.cache.sync.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.StringUtils;

@@ -1,6 +1,6 @@
-package com.example.cachesync.annotation;
+package org.cache.sync.annotation;
 
-import com.example.cachesync.core.CacheSyncPublisher;
+import org.cache.sync.core.CacheSyncPublisher;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.Aspect;
@@ -24,7 +24,7 @@ public class LocalCacheEvictAspect {
         this.cacheSyncPublisher = cacheSyncPublisher;
     }
 
-    @Pointcut("@annotation(com.example.cachesync.annotation.LocalCacheEvict)")
+    @Pointcut("@annotation(org.cache.sync.annotation.LocalCacheEvict)")
     public void localCacheEvictPointcut() {}
 
     @After("localCacheEvictPointcut()")

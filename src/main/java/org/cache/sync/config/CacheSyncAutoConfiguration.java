@@ -1,8 +1,10 @@
-package com.example.cachesync.config;
+package org.cache.sync.config;
 
-import com.example.cachesync.annotation.LocalCacheEvictAspect;
+import org.cache.sync.annotation.LocalCacheEvictAspect;
 import com.example.cachesync.core.*;
-import com.example.cachesync.metrics.CacheSyncMetrics;
+import org.cache.sync.core.*;
+import org.cachesync.core.*;
+import org.cache.sync.metrics.CacheSyncMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,16 +24,16 @@ public class CacheSyncAutoConfiguration {
     }
 
     @Bean
-    public CacheSyncPublisher cacheSyncPublisher(RedisTemplate<String, Object> redisTemplate, 
-                                                CacheSyncProperties properties, 
-                                                CacheSyncMetrics metrics) {
+    public CacheSyncPublisher cacheSyncPublisher(RedisTemplate<String, Object> redisTemplate,
+                                                 CacheSyncProperties properties,
+                                                 CacheSyncMetrics metrics) {
         return new RedisStreamCacheSyncPublisher(redisTemplate, properties, metrics);
     }
 
     @Bean
-    public CacheSyncConsumer cacheSyncConsumer(RedisTemplate<String, Object> redisTemplate, 
-                                              CacheSyncProperties properties, 
-                                              CacheSyncMetrics metrics) {
+    public CacheSyncConsumer cacheSyncConsumer(RedisTemplate<String, Object> redisTemplate,
+                                               CacheSyncProperties properties,
+                                               CacheSyncMetrics metrics) {
         return new CacheSyncConsumer(redisTemplate, properties, metrics);
     }
 

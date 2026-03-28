@@ -1,11 +1,11 @@
-package com.example.cachesync;
+package org.cache.sync;
 
-import com.example.cachesync.core.CacheCleanHandler;
-import com.example.cachesync.core.CacheSyncConsumer;
-import com.example.cachesync.core.CacheSyncPublisher;
-import com.example.cachesync.core.RedisStreamCacheSyncPublisher;
-import com.example.cachesync.config.CacheSyncProperties;
-import com.example.cachesync.metrics.CacheSyncMetrics;
+import org.cache.sync.core.CacheCleanHandler;
+import org.cache.sync.core.CacheSyncConsumer;
+import org.cache.sync.core.CacheSyncPublisher;
+import org.cache.sync.core.RedisStreamCacheSyncPublisher;
+import org.cache.sync.config.CacheSyncProperties;
+import org.cache.sync.metrics.CacheSyncMetrics;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;

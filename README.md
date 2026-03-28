@@ -11,6 +11,8 @@
 - **易于集成**：提供注解和 API，业务代码只需简单配置即可接入。
 - **低侵入**：与现有本地缓存（如 Caffeine）解耦，仅提供清理事件机制。
 - **监控指标**：暴露 Micrometer 指标，便于监控系统运行状态。
+- **类型匹配**：支持基于 type 和 subType 的缓存清理处理器匹配机制，实现精细化缓存管理。
+- **事务支持**：支持在事务提交后发送缓存清理消息，确保数据一致性。
 
 ## 2. 技术实现
 
@@ -28,7 +30,7 @@
 
 ```xml
 <dependency>
-    <groupId>com.example</groupId>
+    <groupId>org.cache.sync</groupId>
     <artifactId>cache-sync-starter</artifactId>
     <version>1.0.0</version>
 </dependency>
@@ -62,14 +64,29 @@ cache:
 使用 `@LocalCacheEvict` 注解标记需要自动发布缓存清理消息的方法：
 
 ```java
-import com.example.cachesync.annotation.LocalCacheEvict;
+import org.cache.sync.annotation.LocalCacheEvict;
 
 @Service
 public class MyService {
-    @LocalCacheEvict(cacheKey = "#id")  // 当方法执行完后自动发布清理消息
-    public void updateData(String id) {
-        // 更新数据库逻辑
-    }
+
+	// 基本用法，使用默认的type和subType
+	@LocalCacheEvict(cacheKey = "#id")  // 当方法执行完后自动发布清理消息
+	public void updateData(String id) {
+		// 更新数据库逻辑
+	}
+
+	// 高级用法，指定type和subType
+	@LocalCacheEvict(type = "user", subType = "profile", cacheKey = "#id")
+	public void updateUserProfile(String id) {
+		// 更新用户资料
+	}
+
+	// 非事务模式
+	@LocalCacheEvict(type = "product", subType = "info", cacheKey = "#productId", afterTransaction = false)
+	public void updateProductInfo(String productId) {
+		// 更新产品信息
+	}
+
 }
 ```
 
@@ -78,19 +95,29 @@ public class MyService {
 直接注入 `CacheSyncPublisher` Bean 并调用其方法：
 
 ```java
-import com.example.cachesync.core.CacheSyncPublisher;
+import org.cache.sync.core.CacheSyncPublisher;
+
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class UserService {
-    @Autowired
-    private CacheSyncPublisher cacheSyncPublisher;
 
-    public void deleteUser(String userId) {
-        // 删除数据库
-        userDao.delete(userId);
-        // 广播清理本地缓存
-        cacheSyncPublisher.publishCacheClean("user:" + userId);
-    }
+	@Autowired
+	private CacheSyncPublisher cacheSyncPublisher;
+
+	public void deleteUser(String userId) {
+		// 删除数据库
+		userDao.delete(userId);
+
+		// 构建元数据
+		Map<String, String> metadata = new HashMap<>();
+		metadata.put("operation", "delete");
+
+		// 广播清理本地缓存
+		cacheSyncPublisher.publishCacheClean("user", "profile", "user:" + userId, metadata, true);
+	}
+
 }
 ```
 
@@ -99,15 +126,31 @@ public class UserService {
 实现 `CacheCleanHandler` 接口来自定义缓存清理逻辑：
 
 ```java
-import com.example.cachesync.core.CacheCleanHandler;
+import org.cache.sync.core.CacheCleanHandler;
+
+import java.util.Map;
 
 @Component
-public class MyCacheCleanHandler implements CacheCleanHandler {
-    @Override
-    public void handle(String cacheKey, Map<String, String> metadata) {
-        // 清理本地缓存的实现
-        localCache.invalidate(cacheKey);
-    }
+public class UserCacheCleanHandler implements CacheCleanHandler {
+
+	// 只处理用户相关的缓存清理
+	@Override
+	public String supportType() {
+		return "user";
+	}
+
+	@Override
+	public String supportSubType() {
+		return "profile";
+	}
+
+	@Override
+	public void cacheSync(String type, String subType, String cacheKey, Map<String, String> metadata) {
+		// 清理本地缓存的实现
+		localCache.invalidate(cacheKey);
+		System.out.println("清理缓存: " + cacheKey + ", 操作: " + metadata.get("operation"));
+	}
+
 }
 ```
 
@@ -136,8 +179,8 @@ public class MyCacheCleanHandler implements CacheCleanHandler {
 ## 7. 环境要求
 
 - **Redis**：版本 ≥ 5.0（支持 Streams）
-- **Spring Boot**：2.x / 3.x
-- **Java**：8+
+- **Spring Boot**：3.x
+- **Java**：17+
 
 ## 8. 常见问题
 
