@@ -1,0 +1,428 @@
+package com.example.cachesync.core;
+
+import com.example.cachesync.config.CacheSyncProperties;
+import com.example.cachesync.metrics.CacheSyncMetrics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
+import org.springframework.data.redis.connection.stream.*;
+import org.springframework.data.redis.core.RedisTemplate;
+
+import java.time.Duration;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public class CacheSyncConsumer implements ApplicationContextAware, SmartInitializingSingleton, DisposableBean {
+
+    private static final Logger logger = LoggerFactory.getLogger(CacheSyncConsumer.class);
+
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final CacheSyncProperties properties;
+    private final CacheSyncMetrics metrics;
+
+    private final ExecutorService executorService;
+    private final ScheduledExecutorService scheduledExecutorService;
+    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final String consumerGroup;
+    private final String consumerName;
+    ApplicationContext applicationContext;
+
+    // 存储所有Handler的映射: type -> subType -> List<Handler>
+    private Map<String, Map<String, List<CacheCleanHandler>>> handlerMapping = new HashMap<>();
+    // 存储所有Handler的列表
+    private List<CacheCleanHandler> allHandlers = new ArrayList<>();
+
+    public CacheSyncConsumer(RedisTemplate<String, Object> redisTemplate, 
+                            CacheSyncProperties properties, 
+                            CacheSyncMetrics metrics) {
+        this.redisTemplate = redisTemplate;
+        this.properties = properties;
+        this.metrics = metrics;
+        // 固定线程池，用于消息消费
+        this.executorService = Executors.newFixedThreadPool(properties.getThreadPoolSize());
+        // 单线程定时任务线程池，用于扫描Pending消息
+        this.scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+        this.consumerGroup = properties.getConsumerGroup();
+        this.consumerName = properties.getInstanceId();
+    }
+
+    public void start() {
+	    if (!properties.isEnabled()) {
+		    return;
+	    }
+        if(!running.get())
+            return;
+        
+        // 创建消费者组
+        createConsumerGroup();
+
+        // 启动消费线程
+        for (int i = 0; i < properties.getThreadPoolSize(); i++) {
+            String consumerName = this.consumerName + "-" + i;
+            executorService.submit(() -> consumeMessages(consumerName));
+        }
+
+        // 启动 Pending 消息扫描定时任务（每30秒执行一次）
+        scheduledExecutorService.scheduleAtFixedRate(this::scanPendingMessages, 0, 30, TimeUnit.SECONDS);
+    }
+
+    public void stop() {
+        if (!properties.isEnabled()) {
+            return;
+        }
+        if(!running.get())
+            return;
+        running.set(false);
+        try {
+            // 关闭定时任务线程池
+            scheduledExecutorService.shutdown();
+            scheduledExecutorService.awaitTermination(properties.getGracefulShutdownTimeoutMs(), TimeUnit.MILLISECONDS);
+            
+            // 关闭消息消费线程池
+            executorService.shutdown();
+            executorService.awaitTermination(properties.getGracefulShutdownTimeoutMs(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void createConsumerGroup() {
+        try {
+            // 确保 Stream 存在
+            try {
+                // 尝试添加一个空消息来创建 Stream（如果不存在）
+                redisTemplate.opsForStream().add(properties.getStreamKey(), new HashMap<>());
+            } catch (Exception e) {
+                // Stream 可能已经存在，忽略异常
+            }
+            
+            // 尝试创建消费者组
+            try {
+                redisTemplate.opsForStream().createGroup(
+                        properties.getStreamKey(),
+                        consumerGroup
+                );
+                logger.info("Created consumer group: {}", consumerGroup);
+            } catch (Exception e) {
+                // 消费者组已存在，忽略异常
+                logger.debug("Consumer group already exists: {}", consumerGroup);
+            }
+        } catch (Exception e) {
+            logger.error("Error creating consumer group: {}", consumerGroup, e);
+        }
+    }
+
+    /**
+     * 消费消息的主方法
+     * 功能：从Redis Stream中读取新消息并处理
+     * <p>
+     * 工作原理：
+     * 1. 从Stream中读取消息（使用block机制，避免轮询）
+     * 2. 解析消息内容（type, subType, cacheKey, metadata）
+     * 3. 调用handleCacheClean处理缓存清理
+     * 4. 确认消息（ack），将消息从pending列表中移除
+     * 5. 更新监控指标
+     * <p>
+     * 适用场景：处理正常的、新到达的缓存清理消息
+     */
+    private void consumeMessages(String consumerName) {
+        while (running.get()) {
+            try {
+                // 使用 RedisTemplate 读取消息
+                List<MapRecord<String, Object, Object>> messages = redisTemplate.opsForStream().read(
+                        Consumer.from(consumerGroup, consumerName),
+                        StreamReadOptions.empty()
+                                .count(properties.getBatchSize())
+                                .block(Duration.ofMillis(properties.getBlockMs())),
+                       StreamOffset.create(properties.getStreamKey(), ReadOffset.lastConsumed())
+                );
+
+                if (messages != null && !messages.isEmpty()) {
+                    for (MapRecord<String, Object, Object> record : messages) {
+                        Map<Object, Object> messageData = record.getValue();
+                        String messageId = record.getId().getValue();
+
+                        // 解析消息
+                        Map<String, String> metadata = new HashMap<>();
+                        String cacheKey = null;
+                        String type = null;
+                        String subType = null;
+                        for (Map.Entry<Object, Object> dataEntry : messageData.entrySet()) {
+                            String key = String.valueOf(dataEntry.getKey());
+                            String value = String.valueOf(dataEntry.getValue());
+                            if ("cacheKey".equals(key)) {
+                                cacheKey = value;
+                            } else if ("type".equals(key)) {
+                                type = value;
+                            } else if ("subType".equals(key)) {
+                                subType = value;
+                            } else {
+                                metadata.put(key, value);
+                            }
+                        }
+
+                        if (cacheKey != null && type != null && subType != null) {
+                            try {
+                                // 处理缓存清理
+                                handleCacheClean(type, subType, cacheKey, metadata);
+                                // 确认消息
+                                redisTemplate.opsForStream().acknowledge(
+                                        properties.getStreamKey(),
+                                        consumerGroup,
+                                        messageId
+                                );
+                                metrics.incrementConsumedMessages();
+                            } catch (Exception e) {
+                                logger.error("Failed to handle cache clean message: type={}, subType={}, cacheKey={}", type, subType, cacheKey, e);
+                                metrics.incrementFailedMessages();
+                                // 处理失败，保持 Pending 状态，等待重试
+                            }
+                        } else {
+                            logger.warn("Invalid message format: cacheKey={}, type={}, subType={}", cacheKey, type, subType);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Error consuming messages", e);
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    }
+
+    /**
+     * 扫描Pending消息的方法
+     * 功能：扫描并处理超时的Pending消息（可能是由于消费者崩溃等原因未处理的消息）
+     * <p>
+     * 工作原理：
+     * 1. 定期（每30秒）检查Stream中的Pending消息
+     * 2. 认领（claim）超时的消息（超过messageTimeoutMs的消息）
+     * 3. 解析消息内容并处理
+     * 4. 确认消息并更新监控指标
+     * <p>
+     * 适用场景：处理因消费者崩溃、网络中断等原因导致的未处理消息
+     */
+    private void scanPendingMessages() {
+        if(!running.get())
+            return;
+            
+        try {
+            // 确保消费者组存在
+            createConsumerGroup();
+            
+            // 使用 RedisTemplate 查看 Pending 消息
+            org.springframework.data.redis.connection.stream.PendingMessagesSummary pendingSummary = redisTemplate.opsForStream().pending(
+                    properties.getStreamKey(),
+                    consumerGroup
+            );
+            if (pendingSummary != null) {
+                long pendingCount = pendingSummary.getTotalPendingMessages();
+                metrics.setPendingSize(pendingCount);
+
+                if (pendingCount > 0) {
+                    // 尝试认领超时消息
+                    List<org.springframework.data.redis.connection.stream.MapRecord<String, Object, Object>> claimedMessages = redisTemplate.opsForStream().claim(
+                            properties.getStreamKey(),
+                            consumerGroup,
+                            consumerName,
+                            java.time.Duration.ofMillis(properties.getMessageTimeoutMs()),
+                            new org.springframework.data.redis.connection.stream.RecordId[0]
+                    );
+
+                    for (org.springframework.data.redis.connection.stream.MapRecord<String, Object, Object> record : claimedMessages) {
+                        Map<Object, Object> messageData = record.getValue();
+                        String messageId = record.getId().getValue();
+
+                        // 解析消息
+                        Map<String, String> metadata = new HashMap<>();
+                        String cacheKey = null;
+                        String type = null;
+                        String subType = null;
+                        for (Map.Entry<Object, Object> dataEntry : messageData.entrySet()) {
+                            String key = String.valueOf(dataEntry.getKey());
+                            String value = String.valueOf(dataEntry.getValue());
+                            if ("cacheKey".equals(key)) {
+                                cacheKey = value;
+                            } else if ("type".equals(key)) {
+                                type = value;
+                            } else if ("subType".equals(key)) {
+                                subType = value;
+                            } else {
+                                metadata.put(key, value);
+                            }
+                        }
+
+                        if (cacheKey != null && type != null && subType != null) {
+                            try {
+                                // 处理缓存清理
+                                handleCacheClean(type, subType, cacheKey, metadata);
+                                // 确认消息
+                                redisTemplate.opsForStream().acknowledge(
+                                        properties.getStreamKey(),
+                                        consumerGroup,
+                                        messageId
+                                );
+                                metrics.incrementConsumedMessages();
+                            } catch (Exception e) {
+                                logger.error("Failed to handle claimed cache clean message: type={}, subType={}, cacheKey={}", type, subType, cacheKey, e);
+                                metrics.incrementFailedMessages();
+                            }
+                        } else {
+                            logger.warn("Invalid claimed message format: cacheKey={}, type={}, subType={}", cacheKey, type, subType);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error scanning pending messages", e);
+        }
+    }
+
+    /**
+     * 处理缓存清理，根据type和subType查找对应的Handler执行
+     */
+    private void handleCacheClean(String type, String subType, String cacheKey, Map<String, String> metadata) {
+        List<CacheCleanHandler> handlers = findHandlers(type, subType);
+        
+        if (handlers.isEmpty()) {
+            logger.warn("No CacheCleanHandler found for type={}, subType={}, cacheKey={}", type, subType, cacheKey);
+            return;
+        }
+        
+        for (CacheCleanHandler handler : handlers) {
+            try {
+                handler.cacheSync(type, subType, cacheKey, metadata);
+                logger.debug("Cache clean handled by {}: type={}, subType={}, cacheKey={}", 
+                    handler.getClass().getSimpleName(), type, subType, cacheKey);
+            } catch (Exception e) {
+                logger.error("Handler {} failed to process cache clean: type={}, subType={}, cacheKey={}", 
+                    handler.getClass().getSimpleName(), type, subType, cacheKey, e);
+            }
+        }
+    }
+
+    /**
+     * 根据type和subType查找匹配的Handler列表
+     * 匹配优先级：
+     * 1. 精确匹配 (type, subType)
+     * 2. type精确 + subType通配 (*)
+     * 3. type通配 (*) + subType精确
+     * 4. 全部通配 (*, *)
+     */
+    private List<CacheCleanHandler> findHandlers(String type, String subType) {
+        List<CacheCleanHandler> result = new ArrayList<>();
+        
+        // 1. 精确匹配 (type, subType)
+        Map<String, List<CacheCleanHandler>> subTypeMap = handlerMapping.get(type);
+        if (subTypeMap != null) {
+            List<CacheCleanHandler> exactHandlers = subTypeMap.get(subType);
+            if (exactHandlers != null && !exactHandlers.isEmpty()) {
+                result.addAll(exactHandlers);
+            }
+            
+            // 2. type精确 + subType通配 (*)
+            List<CacheCleanHandler> wildcardSubTypeHandlers = subTypeMap.get("*");
+            if (wildcardSubTypeHandlers != null && !wildcardSubTypeHandlers.isEmpty()) {
+                for (CacheCleanHandler handler : wildcardSubTypeHandlers) {
+                    if (!result.contains(handler)) {
+                        result.add(handler);
+                    }
+                }
+            }
+        }
+        
+        // 3. type通配 (*) + subType精确
+        Map<String, List<CacheCleanHandler>> wildcardTypeMap = handlerMapping.get("*");
+        if (wildcardTypeMap != null) {
+            List<CacheCleanHandler> wildcardTypeExactSubHandlers = wildcardTypeMap.get(subType);
+            if (wildcardTypeExactSubHandlers != null && !wildcardTypeExactSubHandlers.isEmpty()) {
+                for (CacheCleanHandler handler : wildcardTypeExactSubHandlers) {
+                    if (!result.contains(handler)) {
+                        result.add(handler);
+                    }
+                }
+            }
+            
+            // 4. 全部通配 (*, *)
+            List<CacheCleanHandler> allWildcardHandlers = wildcardTypeMap.get("*");
+            if (allWildcardHandlers != null && !allWildcardHandlers.isEmpty()) {
+                for (CacheCleanHandler handler : allWildcardHandlers) {
+                    if (!result.contains(handler)) {
+                        result.add(handler);
+                    }
+                }
+            }
+        }
+        
+        return result;
+    }
+
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+        this.applicationContext = applicationContext;
+    }
+
+    @Override
+    public void afterSingletonsInstantiated() {
+        // 把所有实现了 CacheCleanHandler 接口的bean找出来
+        Map<String, CacheCleanHandler> handlerBeans = applicationContext.getBeansOfType(CacheCleanHandler.class);
+        
+        if (handlerBeans.isEmpty()) {
+            logger.warn("No CacheCleanHandler implementation found! Cache sync messages will not be processed.");
+            return;
+        }
+        
+        logger.info("Found {} CacheCleanHandler implementations", handlerBeans.size());
+        
+        // 构建映射表
+        for (Map.Entry<String, CacheCleanHandler> entry : handlerBeans.entrySet()) {
+            CacheCleanHandler handler = entry.getValue();
+            String beanName = entry.getKey();
+            
+            String supportType = handler.supportType();
+            String supportSubType = handler.supportSubType();
+            
+            // 处理null值，默认使用*
+            if (supportType == null) {
+                supportType = "*";
+            }
+            if (supportSubType == null) {
+                supportSubType = "*";
+            }
+            
+            // 添加到映射表
+            handlerMapping
+                .computeIfAbsent(supportType, k -> new HashMap<>())
+                .computeIfAbsent(supportSubType, k -> new ArrayList<>())
+                .add(handler);
+            
+            allHandlers.add(handler);
+            
+            logger.info("Registered CacheCleanHandler: beanName={}, supportType={}, supportSubType={}", 
+                beanName, supportType, supportSubType);
+        }
+        
+        logger.info("CacheCleanHandler mapping initialized with {} handlers", allHandlers.size());
+        
+        // 启动消费者
+        start();
+    }
+    
+    @Override
+    public void destroy() {
+        // 停止消费者
+        stop();
+    }
+
+}
