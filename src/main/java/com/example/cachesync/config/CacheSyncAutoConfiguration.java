@@ -11,15 +11,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.RedisTemplate;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
-
 @Configuration
 @EnableConfigurationProperties(CacheSyncProperties.class)
 @ConditionalOnProperty(prefix = "cache.sync", name = "enabled", havingValue = "true")
 public class CacheSyncAutoConfiguration {
-
-    private CacheSyncConsumer cacheSyncConsumer;
 
     @Bean
     public CacheSyncMetrics cacheSyncMetrics() {
@@ -37,8 +32,7 @@ public class CacheSyncAutoConfiguration {
     public CacheSyncConsumer cacheSyncConsumer(RedisTemplate<String, Object> redisTemplate, 
                                               CacheSyncProperties properties, 
                                               CacheSyncMetrics metrics) {
-        cacheSyncConsumer = new CacheSyncConsumer(redisTemplate, properties, metrics);
-        return cacheSyncConsumer;
+        return new CacheSyncConsumer(redisTemplate, properties, metrics);
     }
 
     @Bean
@@ -50,20 +44,6 @@ public class CacheSyncAutoConfiguration {
     public void registerMetrics(MeterRegistry meterRegistry, CacheSyncMetrics metrics) {
         if (meterRegistry != null) {
             metrics.bindTo(meterRegistry);
-        }
-    }
-
-    @PostConstruct
-    public void startConsumer() {
-        if (cacheSyncConsumer != null) {
-            cacheSyncConsumer.start();
-        }
-    }
-
-    @PreDestroy
-    public void stopConsumer() {
-        if (cacheSyncConsumer != null) {
-            cacheSyncConsumer.stop();
         }
     }
 
