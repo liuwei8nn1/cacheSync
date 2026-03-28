@@ -72,41 +72,35 @@ public class CacheSyncProperties implements ApplicationContextAware {
         }
         // 生成默认实例 ID，确保唯一性
         StringBuilder sb = new StringBuilder();
+        // 尝试多种方式获取应用名
+        String appName = null;
+        // 从 Spring Environment 获取
+        if (applicationContext != null) {
+            Environment env = applicationContext.getEnvironment();
+            appName = env.getProperty("spring.application.name");
+        }
+        if (StringUtils.hasLength(appName)) {
+            sb.append(appName).append("-");
+        }
         try {
-            // 尝试多种方式获取应用名
-            String appName = null;
-            
-            // 1. 优先从 Spring Environment 获取（最可靠）
-            if (applicationContext != null) {
-                Environment env = applicationContext.getEnvironment();
-                if (env != null) {
-                    appName = env.getProperty("spring.application.name");
-                }
-            }
-
-            if (StringUtils.hasLength(appName)) {
-                sb.append(appName).append("-");
-            }
-            
             // 添加 IP 地址
-            sb.append(InetAddress.getLocalHost().getHostAddress()).append("-");
-            
+            sb.append(InetAddress.getLocalHost().getHostAddress());
             // 添加进程 ID（兼容 Java 8+）
-            long pid;
-            try {
-                // 尝试使用 Java 9+ 的 ProcessHandle
-                pid = ProcessHandle.current().pid();
-            } catch (NoClassDefFoundError e) {
-                // Java 8 兼容方案 - 使用 ManagementFactory
-                try {
-                    String runtimeName = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
-                    pid = Long.parseLong(runtimeName.split("@")[0]);
-                } catch (Exception ex) {
-                    // 最后的备选方案
-                    pid = Thread.currentThread().getId();
-                }
-            }
-            sb.append(pid);
+            // long pid;
+            // try {
+            //     // 尝试使用 Java 9+ 的 ProcessHandle
+            //     pid = ProcessHandle.current().pid();
+            // } catch (NoClassDefFoundError e) {
+            //     // Java 8 兼容方案 - 使用 ManagementFactory
+            //     try {
+            //         String runtimeName = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
+            //         pid = Long.parseLong(runtimeName.split("@")[0]);
+            //     } catch (Exception ex) {
+            //         // 最后的备选方案
+            //         pid = Thread.currentThread().getId();
+            //     }
+            // }
+            // sb.append("-").append(pid);
         } catch (UnknownHostException e) {
             // 如果无法获取 IP 地址，使用随机值
             sb.append("unknown-").append(UUID.randomUUID().toString());
