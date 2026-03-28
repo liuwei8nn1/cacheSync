@@ -1,14 +1,19 @@
 package org.cache.sync.config;
 
+import org.springframework.beans.BeansException;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
+import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
 
+import java.io.File;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.UUID;
 
 @ConfigurationProperties(prefix = "cache.sync")
-public class CacheSyncProperties {
+public class CacheSyncProperties implements ApplicationContextAware {
 
     private boolean enabled = false;
     private String streamKey = "cache:sync:stream";
@@ -21,7 +26,10 @@ public class CacheSyncProperties {
     private int threadPoolSize = 1;
     private long gracefulShutdownTimeoutMs = 30000;
     private boolean enableMetrics = true;
+    private boolean autoCleanOfflineConsumers = false;
+    private long offlineConsumerTimeoutMinutes = 60 * 8;
     private transient String instanceId = null;
+    private transient ApplicationContext applicationContext;
 
     public boolean isEnabled() {
         return enabled;
@@ -65,31 +73,51 @@ public class CacheSyncProperties {
         // 生成默认实例 ID，确保唯一性
         StringBuilder sb = new StringBuilder();
         try {
-            // 添加应用名（如果有）
-            String appName = System.getProperty("spring.application.name");
+            // 尝试多种方式获取应用名
+            String appName = null;
+            
+            // 1. 优先从 Spring Environment 获取（最可靠）
+            if (applicationContext != null) {
+                Environment env = applicationContext.getEnvironment();
+                if (env != null) {
+                    appName = env.getProperty("spring.application.name");
+                }
+            }
+
             if (StringUtils.hasLength(appName)) {
                 sb.append(appName).append("-");
             }
+            
             // 添加 IP 地址
             sb.append(InetAddress.getLocalHost().getHostAddress()).append("-");
+            
             // 添加进程 ID（兼容 Java 8+）
             long pid;
             try {
                 // 尝试使用 Java 9+ 的 ProcessHandle
                 pid = ProcessHandle.current().pid();
             } catch (NoClassDefFoundError e) {
-                // Java 8 兼容方案
-                pid = Long.parseLong(System.getProperty("PID", String.valueOf(Thread.currentThread().getId())));
+                // Java 8 兼容方案 - 使用 ManagementFactory
+                try {
+                    String runtimeName = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
+                    pid = Long.parseLong(runtimeName.split("@")[0]);
+                } catch (Exception ex) {
+                    // 最后的备选方案
+                    pid = Thread.currentThread().getId();
+                }
             }
-            sb.append(pid).append("-");
-            // 添加随机值
-            sb.append(UUID.randomUUID().toString(), 0, 8);
+            sb.append(pid);
         } catch (UnknownHostException e) {
             // 如果无法获取 IP 地址，使用随机值
             sb.append("unknown-").append(UUID.randomUUID().toString());
         }
         instanceId = sb.toString();
         return instanceId;
+    }
+
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+        this.applicationContext = applicationContext;
     }
 
     public long getMessageTimeoutMs() {
@@ -154,5 +182,21 @@ public class CacheSyncProperties {
 
     public void setEnableMetrics(boolean enableMetrics) {
         this.enableMetrics = enableMetrics;
+    }
+
+    public boolean isAutoCleanOfflineConsumers() {
+        return autoCleanOfflineConsumers;
+    }
+
+    public void setAutoCleanOfflineConsumers(boolean autoCleanOfflineConsumers) {
+        this.autoCleanOfflineConsumers = autoCleanOfflineConsumers;
+    }
+
+    public long getOfflineConsumerTimeoutMinutes() {
+        return offlineConsumerTimeoutMinutes;
+    }
+
+    public void setOfflineConsumerTimeoutMinutes(long offlineConsumerTimeoutMinutes) {
+        this.offlineConsumerTimeoutMinutes = offlineConsumerTimeoutMinutes;
     }
 }

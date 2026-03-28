@@ -10,6 +10,7 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.data.redis.connection.stream.*;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.lang.NonNull;
 
@@ -32,8 +33,8 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 	private final ExecutorService executorService;
 	private final ScheduledExecutorService scheduledExecutorService;
 	private final AtomicBoolean running = new AtomicBoolean(true);
-	private final String consumerGroup;
-	private final String consumerName;
+	private String consumerGroup;
+	private String consumerName;
 	ApplicationContext applicationContext;
 
 	// 存储所有Handler的映射: type -> subType -> List<Handler>
@@ -51,8 +52,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 		this.executorService = Executors.newFixedThreadPool(properties.getThreadPoolSize());
 		// 单线程定时任务线程池，用于扫描Pending消息
 		this.scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
-		this.consumerGroup = properties.getConsumerGroup();
-		this.consumerName = properties.getInstanceId();
+
 	}
 
 	public void start() {
@@ -243,6 +243,14 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 				long pendingCount = pendingSummary.getTotalPendingMessages();
 				metrics.setPendingSize(pendingCount);
 
+				// 更新 lag 指标
+				updateLagMetrics();
+
+				// 清理离线的消费者组
+				if (properties.isAutoCleanOfflineConsumers()) {
+					cleanOfflineConsumers();
+				}
+
 				if (pendingCount > 0) {
 					// 尝试认领超时消息
 					// 从选区创建新的临时文件 使用 RedisTemplate 的 claim 方法
@@ -306,6 +314,108 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 			}
 		} catch (Exception e) {
 			logger.error("Error scanning pending messages", e);
+		}
+	}
+
+	/**
+	 * 更新 lag 指标
+	 * 通过 XINFO GROUPS 命令获取消费者组的 lag 信息
+	 */
+	private void updateLagMetrics() {
+		try {
+			// 使用 RedisCallback 直接访问底层连接，执行 XINFO GROUPS 命令
+			redisTemplate.execute((RedisCallback<?>) connection -> {
+				byte[] keyBytes = redisTemplate.getStringSerializer().serialize(properties.getStreamKey());
+				if (keyBytes != null) {
+					try {
+						// 获取消费者组信息 - 返回 XInfoGroups 对象
+						org.springframework.data.redis.connection.stream.StreamInfo.XInfoGroups groups = 
+							connection.streamCommands().xInfoGroups(keyBytes);
+						if (groups != null) {
+							// 查找匹配的消费者组 - 使用迭代器
+							java.util.Iterator<org.springframework.data.redis.connection.stream.StreamInfo.XInfoGroup> iterator = groups.iterator();
+							while (iterator.hasNext()) {
+								org.springframework.data.redis.connection.stream.StreamInfo.XInfoGroup group = iterator.next();
+								// 尝试通过 toString 解析 group 信息
+								String groupStr = group.toString();
+								if (groupStr.contains("consumerGroup=" + consumerGroup)) {
+									// 从字符串中提取 lag 值（简单方式）
+									// 格式类似：XInfoGroup[consumerGroup=group,lag=10,...]
+									int lagIndex = groupStr.indexOf("lag=");
+									if (lagIndex != -1) {
+										int endIndex = groupStr.indexOf(',', lagIndex);
+										if (endIndex == -1) {
+											endIndex = groupStr.indexOf(']', lagIndex);
+										}
+										if (endIndex != -1) {
+											String lagStr = groupStr.substring(lagIndex + 4, endIndex);
+											try {
+												long lag = Long.parseLong(lagStr.trim());
+												metrics.setLag(lag);
+											} catch (NumberFormatException e) {
+												logger.debug("Could not parse lag from: {}", lagStr);
+											}
+										}
+									}
+									break;
+								}
+							}
+						}
+					} catch (Exception e) {
+						logger.debug("Failed to get stream group info for lag metrics: {}", e.getMessage());
+					}
+				}
+				return null;
+			});
+		} catch (Exception e) {
+			logger.debug("Error updating lag metrics: {}", e.getMessage());
+		}
+	}
+
+	/**
+	 * 清理离线的消费者组
+	 * 通过 XINFO CONSUMERS 命令检查每个消费者的最后活跃时间，清理超时的消费者
+	 */
+	private void cleanOfflineConsumers() {
+		try {
+			redisTemplate.execute((RedisCallback<?>) connection -> {
+				byte[] keyBytes = redisTemplate.getStringSerializer().serialize(properties.getStreamKey());
+				if (keyBytes != null) {
+					try {
+						// 获取所有消费者信息 - 使用 XInfoConsumers 对象
+						org.springframework.data.redis.connection.stream.StreamInfo.XInfoConsumers consumers = 
+							connection.streamCommands().xInfoConsumers(keyBytes, consumerGroup);
+						if (consumers != null) {
+							long timeoutMillis = properties.getOfflineConsumerTimeoutMinutes() * 60 * 1000;
+							// 遍历所有消费者 - 使用迭代器
+							Iterator<StreamInfo.XInfoConsumer> iterator = consumers.iterator();
+							while (iterator.hasNext()) {
+								StreamInfo.XInfoConsumer consumer = iterator.next();
+								String groupName = consumer.groupName();
+								String consumerName = consumer.consumerName();
+								Duration idleTime = consumer.idleTime();
+								long idleMillis = idleTime.toMillis();
+								// 如果消费者空闲时间超过阈值，则清理该消费者(是缓存应用，没必要保留)
+								if (idleMillis > timeoutMillis) {
+									logger.info("Cleaning offline consumer: {}, idle time: {} ms", consumerName, idleMillis);
+									try {
+										// 直接删除该消费者
+										connection.streamCommands().xGroupDelConsumer(keyBytes, consumerGroup, consumerName);
+										logger.info("Successfully deleted offline consumer: {}", consumerName);
+									} catch (Exception e) {
+										logger.error("Error deleting consumer: {}", consumerName, e);
+									}
+								}
+							}
+						}
+					} catch (Exception e) {
+						logger.debug("Failed to get consumer info for cleanup: {}", e.getMessage());
+					}
+				}
+				return null;
+			});
+		} catch (Exception e) {
+			logger.debug("Error cleaning offline consumers: {}", e.getMessage());
 		}
 	}
 
@@ -397,6 +507,8 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 
 	@Override
 	public void afterSingletonsInstantiated() {
+		this.consumerGroup = properties.getConsumerGroup();
+		this.consumerName = properties.getInstanceId();
 		// 把所有实现了 CacheCleanHandler 接口的bean找出来
 		Map<String, CacheCleanHandler> handlerBeans = applicationContext.getBeansOfType(CacheCleanHandler.class);
 
