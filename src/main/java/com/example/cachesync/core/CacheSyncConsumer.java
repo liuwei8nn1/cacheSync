@@ -158,11 +158,11 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
                         for (Map.Entry<Object, Object> dataEntry : messageData.entrySet()) {
                             String key = String.valueOf(dataEntry.getKey());
                             String value = String.valueOf(dataEntry.getValue());
-                            if ("cacheKey".equals(key)) {
+                            if (Constants.CACHE_KEY.equals(key)) {
                                 cacheKey = value;
-                            } else if ("type".equals(key)) {
+                            } else if (Constants.TYPE.equals(key)) {
                                 type = value;
-                            } else if ("subType".equals(key)) {
+                            } else if (Constants.SUB_TYPE.equals(key)) {
                                 subType = value;
                             } else {
                                 metadata.put(key, value);

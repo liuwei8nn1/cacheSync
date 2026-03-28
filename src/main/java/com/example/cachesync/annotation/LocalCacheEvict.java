@@ -14,5 +14,9 @@ public @interface LocalCacheEvict {
     String subType() default "";
 
     String cacheKey();
+    /**
+     * 是否是事务提交之后执行
+     */
+    boolean afterTransaction() default true;
 
 }

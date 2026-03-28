@@ -37,8 +37,8 @@ public class LocalCacheEvictAspect {
         String type = annotation.type();
         String subType = annotation.subType();
         String cacheKey = evaluateExpression(cacheKeyExpression, joinPoint);
-
-        cacheSyncPublisher.publishCacheClean(type, subType, cacheKey);
+        boolean afterTransaction = annotation.afterTransaction();
+        cacheSyncPublisher.publishCacheClean(type, subType, cacheKey, afterTransaction);
     }
 
     private String evaluateExpression(String expression, JoinPoint joinPoint) {

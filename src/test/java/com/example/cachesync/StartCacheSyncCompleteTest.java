@@ -73,7 +73,7 @@ public class StartCacheSyncCompleteTest {
             // 检查消息是否已发布到 Redis
             Long size = redisTemplate.opsForStream().size(properties.getStreamKey());
             System.out.println("Stream 中的消息数量: " + size);
-            Thread.sleep(1000 * 60);
+            Thread.sleep(1000 * 5);
             assertTrue(size > 0, "消息未发布到 Redis");
         } catch (Exception e) {
             System.err.println("消息发布失败: " + e.getMessage());
