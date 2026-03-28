@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.MeterBinder;
+import org.springframework.lang.NonNull;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -17,7 +18,7 @@ public class CacheSyncMetrics implements MeterBinder {
 	private final AtomicLong lag = new AtomicLong(0);
 
 	@Override
-	public void bindTo(MeterRegistry registry) {
+	public void bindTo(@NonNull MeterRegistry registry) {
 		Counter.builder("cache.sync.messages.published")
 				.description("Total number of published cache clean messages")
 				.register(registry)
