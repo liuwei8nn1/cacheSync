@@ -12,84 +12,91 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 public class RedisStreamCacheSyncPublisher implements CacheSyncPublisher {
 
-    private final RedisTemplate<String, Object> redisTemplate;
-    private final CacheSyncProperties properties;
-    private final CacheSyncMetrics metrics;
+	private final RedisTemplate<String, Object> redisTemplate;
+	private final CacheSyncProperties properties;
+	private final CacheSyncMetrics metrics;
 
-    public RedisStreamCacheSyncPublisher(RedisTemplate<String, Object> redisTemplate, 
-                                         CacheSyncProperties properties, 
-                                         CacheSyncMetrics metrics) {
-        this.redisTemplate = redisTemplate;
-        this.properties = properties;
-        this.metrics = metrics;
-    }
+	// 用于批量裁剪的计数器
+	private volatile int messageCount = 0;
+	// 批量裁剪的阈值
+	private static final int TRIM_THRESHOLD = 100;
 
-    @Override
-    public void publishCacheClean(String type, String subType, String cacheKey,  Map<String, String> metadata, boolean afterTransaction) {
-        if (!properties.isEnabled()) {
-            return;
-        }
-        Map<String, String> message = new HashMap<>(metadata);
-        message.put(Constants.CACHE_KEY, cacheKey);
-        message.put(Constants.TYPE, type);
-        message.put(Constants.SUB_TYPE, subType);
-        message.put(Constants.TIMESTAMP, String.valueOf(System.currentTimeMillis()));
+	public RedisStreamCacheSyncPublisher(RedisTemplate<String, Object> redisTemplate,
+	                                     CacheSyncProperties properties,
+	                                     CacheSyncMetrics metrics) {
+		this.redisTemplate = redisTemplate;
+		this.properties = properties;
+		this.metrics = metrics;
+	}
 
-        try {
-            if (afterTransaction) {
-                boolean synchronizationActive = TransactionSynchronizationManager.isSynchronizationActive();
-                if (synchronizationActive) {
-                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                        @Override
-                        public void afterCommit() {
-                            cacheClean(properties.getStreamKey(), message);
-                        }
-                    });
-                }else {
-                    cacheClean(properties.getStreamKey(), message);
-                }
-            }else {
-                cacheClean(properties.getStreamKey(), message);
-            }
+	@Override
+	public void publishCacheClean(String type, String subType, String cacheKey, Map<String, String> metadata, boolean afterTransaction) {
+		if (!properties.isEnabled()) {
+			return;
+		}
+		Map<String, String> message = new HashMap<>(metadata);
+		message.put(Constants.CACHE_KEY, cacheKey);
+		message.put(Constants.TYPE, type);
+		message.put(Constants.SUB_TYPE, subType);
+		message.put(Constants.TIMESTAMP, String.valueOf(System.currentTimeMillis()));
 
-        } catch (Exception e) {
-            metrics.incrementFailedMessages();
-            throw new RuntimeException("Failed to publish cache clean message", e);
-        }
-    }
+		try {
+			if (afterTransaction) {
+				boolean synchronizationActive = TransactionSynchronizationManager.isSynchronizationActive();
+				if (synchronizationActive) {
+					TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+						@Override
+						public void afterCommit() {
+							cacheClean(properties.getStreamKey(), message);
+						}
+					});
+				} else {
+					cacheClean(properties.getStreamKey(), message);
+				}
+			} else {
+				cacheClean(properties.getStreamKey(), message);
+			}
 
-    private void cacheClean(String streamKey, Map<String, String> message){
-        // 使用 RedisTemplate 发布消息
-        // 注意：由于 Spring Data Redis 版本限制，这里直接使用 add 方法
-        // 实际生产环境中，可能需要通过其他方式设置 MAXLEN
-        redisTemplate.opsForStream().add(streamKey, message);
-        // 异步修剪 Stream，保持最大长度
-        trimStream(streamKey);
-        metrics.incrementPublishedMessages();
-    }
+		} catch (Exception e) {
+			metrics.incrementFailedMessages();
+			throw new RuntimeException("Failed to publish cache clean message", e);
+		}
+	}
 
-    /**
-     * 修剪 Stream 到配置的最大长度
-     * 使用近似修剪（~）以提高性能
-     */
-    private void trimStream(String streamKey) {
-        try {
-            redisTemplate.execute((RedisCallback<Void>) connection -> {
-                byte[] keyBytes = redisTemplate.getStringSerializer().serialize(streamKey);
-                if (keyBytes != null) {
-                    // 使用 XTRIM 命令，APPROXIMATE 模式提高性能
-                    connection.streamCommands().xTrim(
-                            keyBytes,
-                            properties.getMaxLen(),
-                            true  // true 表示使用 APPROXIMATE 模式
-                    );
-                }
-                return null;
-            });
-        } catch (Exception e) {
-            // 修剪失败不影响主流程，记录日志即可
-            // 可以考虑增加 metrics 统计
-        }
-    }
+	private void cacheClean(String streamKey, Map<String, String> message) {
+		// 使用 RedisTemplate 发布消息
+		redisTemplate.opsForStream().add(streamKey, message);
+		metrics.incrementPublishedMessages();
+
+		// 当消息计数达到阈值时，执行裁剪
+		if (++messageCount >= TRIM_THRESHOLD) {
+			trimStream(streamKey);
+			messageCount = 0;
+		}
+	}
+
+	/**
+	 * 修剪 Stream 到配置的最大长度
+	 * 使用近似修剪（~）以提高性能
+	 */
+	private void trimStream(String streamKey) {
+		try {
+			redisTemplate.execute((RedisCallback<Void>) connection -> {
+				byte[] keyBytes = redisTemplate.getStringSerializer().serialize(streamKey);
+				if (keyBytes != null) {
+					// 使用 XTRIM 命令，APPROXIMATE 模式提高性能
+					connection.streamCommands().xTrim(
+							keyBytes,
+							properties.getMaxLen(),
+							true  // true 表示使用 APPROXIMATE 模式
+					);
+				}
+				return null;
+			});
+		} catch (Exception e) {
+			// 修剪失败不影响主流程，记录日志即可
+			// 可以考虑增加 metrics 统计
+		}
+	}
 
 }
