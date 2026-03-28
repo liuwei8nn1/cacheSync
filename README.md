@@ -133,6 +133,12 @@ import java.util.Map;
 @Component
 public class UserCacheCleanHandler implements CacheCleanHandler {
 
+	static final Cache<Long, Object> localCache = Caffeine.newBuilder()
+			.initialCapacity(4)
+			.maximumSize(512)
+			.expireAfterAccess(10, TimeUnit.MINUTES)
+			.build();
+	
 	// 只处理用户相关的缓存清理
 	@Override
 	public String supportType() {
@@ -147,6 +153,7 @@ public class UserCacheCleanHandler implements CacheCleanHandler {
 	@Override
 	public void cacheSync(String type, String subType, String cacheKey, Map<String, String> metadata) {
 		// 清理本地缓存的实现
+        // localCache.invalidateAll();
 		localCache.invalidate(cacheKey);
 		System.out.println("清理缓存: " + cacheKey + ", 操作: " + metadata.get("operation"));
 	}

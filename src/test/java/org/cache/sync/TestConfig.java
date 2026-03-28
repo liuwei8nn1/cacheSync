@@ -66,7 +66,7 @@ public class TestConfig {
 
             @Override
             public String supportSubType() {
-                return "*";
+	            return CacheCleanHandler.super.supportSubType();
             }
 
             @Override

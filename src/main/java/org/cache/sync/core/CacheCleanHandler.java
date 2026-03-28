@@ -5,11 +5,11 @@ import java.util.Map;
 public interface CacheCleanHandler {
 
     default String supportType(){
-        return "*";
+        return "default";
     }
 
     default String supportSubType(){
-        return "*";
+        return "default";
     }
 
     void cacheSync(String type, String subType, String cacheKey, Map<String, String> metadata);

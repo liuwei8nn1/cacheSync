@@ -1,11 +1,9 @@
 package org.cache.sync.config;
 
-import org.cache.sync.annotation.LocalCacheEvictAspect;
-import com.example.cachesync.core.*;
-import org.cache.sync.core.*;
-import org.cachesync.core.*;
-import org.cache.sync.metrics.CacheSyncMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.cache.sync.annotation.LocalCacheEvictAspect;
+import org.cache.sync.core.*;
+import org.cache.sync.metrics.CacheSyncMetrics;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

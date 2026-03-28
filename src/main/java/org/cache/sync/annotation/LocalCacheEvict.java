@@ -9,9 +9,9 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface LocalCacheEvict {
 
-    String type() default "";
+    String type() default "default";
 
-    String subType() default "";
+    String subType() default "default";
 
     String cacheKey();
     /**

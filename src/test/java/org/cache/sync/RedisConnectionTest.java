@@ -1,6 +1,5 @@
 package org.cache.sync;
 
-import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
@@ -31,7 +30,6 @@ public class RedisConnectionTest {
             factory.destroy();
         } catch (Exception e) {
             System.err.println("Redis 连接失败: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 }
