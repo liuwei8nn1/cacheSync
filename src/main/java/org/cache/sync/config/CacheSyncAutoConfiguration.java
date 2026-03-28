@@ -41,8 +41,8 @@ public class CacheSyncAutoConfiguration {
     }
 
     @Autowired(required = false)
-    public void registerMetrics(MeterRegistry meterRegistry, CacheSyncMetrics metrics) {
-        if (meterRegistry != null) {
+    public void registerMetrics(MeterRegistry meterRegistry, CacheSyncMetrics metrics, CacheSyncProperties properties) {
+        if (meterRegistry != null && properties.isEnableMetrics()) {
             metrics.bindTo(meterRegistry);
         }
     }

@@ -233,13 +233,15 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 
                 if (pendingCount > 0) {
                     // 尝试认领超时消息
-                    List<org.springframework.data.redis.connection.stream.MapRecord<String, Object, Object>> claimedMessages = redisTemplate.opsForStream().claim(
-                            properties.getStreamKey(),
-                            consumerGroup,
-                            consumerName,
-                            java.time.Duration.ofMillis(properties.getMessageTimeoutMs()),
-                            new org.springframework.data.redis.connection.stream.RecordId[0]
-                    );
+                    // 从选区创建新的临时文件 使用 RedisTemplate 的 claim 方法
+                    List<MapRecord<String, Object, Object>> claimedMessages =
+                        redisTemplate.opsForStream().claim(
+                                properties.getStreamKey(),
+                                consumerGroup,
+                                consumerName,
+                                java.time.Duration.ofMillis(properties.getMessageTimeoutMs()),
+                                new org.springframework.data.redis.connection.stream.RecordId[0]
+                        );
 
                     for (org.springframework.data.redis.connection.stream.MapRecord<String, Object, Object> record : claimedMessages) {
                         Map<Object, Object> messageData = record.getValue();
@@ -253,11 +255,11 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
                         for (Map.Entry<Object, Object> dataEntry : messageData.entrySet()) {
                             String key = String.valueOf(dataEntry.getKey());
                             String value = String.valueOf(dataEntry.getValue());
-                            if ("cacheKey".equals(key)) {
+                            if (Constants.CACHE_KEY.equals(key)) {
                                 cacheKey = value;
-                            } else if ("type".equals(key)) {
+                            } else if (Constants.TYPE.equals(key)) {
                                 type = value;
-                            } else if ("subType".equals(key)) {
+                            } else if (Constants.SUB_TYPE.equals(key)) {
                                 subType = value;
                             } else {
                                 metadata.put(key, value);

@@ -51,7 +51,7 @@ cache:
     max-retry: 3                         # 最大重试次数（认领次数），超过则丢弃
     batch-size: 10                       # 每次 XREADGROUP 读取的消息数量
     block-ms: 5000                       # 阻塞读取时间（毫秒）
-    maxlen: 10000                        # Stream 最大保留消息数量（通过 ~ 近似裁剪）
+    max-len: 100                        # Stream 最大保留消息数量（通过 ~ 近似裁剪）
     thread-pool-size: 1                  # 消费线程数（通常 1 即可）
     graceful-shutdown-timeout-ms: 30000  # 优雅关闭时等待处理中的消息完成的最长时间
     enable-metrics: true                 # 是否暴露 Micrometer 指标

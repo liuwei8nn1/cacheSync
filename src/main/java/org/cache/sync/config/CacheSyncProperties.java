@@ -17,7 +17,7 @@ public class CacheSyncProperties {
     private int maxRetry = 3;
     private int batchSize = 10;
     private long blockMs = 5000;
-    private long maxlen = 10000;
+    private long maxLen = 10000;
     private int threadPoolSize = 1;
     private long gracefulShutdownTimeoutMs = 30000;
     private boolean enableMetrics = true;
@@ -124,12 +124,12 @@ public class CacheSyncProperties {
         this.blockMs = blockMs;
     }
 
-    public long getMaxlen() {
-        return maxlen;
+    public long getMaxLen() {
+        return maxLen;
     }
 
-    public void setMaxlen(long maxlen) {
-        this.maxlen = maxlen;
+    public void setMaxLen(long maxLen) {
+        this.maxLen = maxLen;
     }
 
     public int getThreadPoolSize() {

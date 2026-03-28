@@ -44,7 +44,7 @@ public class TestConfig {
         properties.setMessageTimeoutMs(5000);
         properties.setBatchSize(10);
         properties.setBlockMs(1000);
-        properties.setMaxlen(100);
+        properties.setMaxLen(100);
         properties.setThreadPoolSize(1);
         properties.setGracefulShutdownTimeoutMs(5000);
         properties.setEnableMetrics(true);

@@ -9,4 +9,5 @@ public class Constants {
 	public static final String TYPE = "__type";
 	public static final String SUB_TYPE = "__subType";
 	public static final String TIMESTAMP = "__timestamp";
+	public static final String RETRY_SIZE = "__retrySize";
 }
