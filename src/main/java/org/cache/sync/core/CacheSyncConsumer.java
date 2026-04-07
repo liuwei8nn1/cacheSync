@@ -69,7 +69,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 		// 启动消费线程
 		for (int i = 0; i < properties.getThreadPoolSize(); i++) {
 			String consumerName = this.consumerName + "-" + i;
-			executorService.submit(() -> consumeMessages(consumerName));
+			executorService.execute(() -> consumeMessages(consumerName));
 		}
 
 		// 启动 Pending 消息扫描定时任务（每30秒执行一次）
@@ -235,7 +235,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 			createConsumerGroup();
 
 			// 使用 RedisTemplate 查看 Pending 消息
-			org.springframework.data.redis.connection.stream.PendingMessagesSummary pendingSummary = redisTemplate.opsForStream().pending(
+			PendingMessagesSummary pendingSummary = redisTemplate.opsForStream().pending(
 					properties.getStreamKey(),
 					consumerGroup
 			);
@@ -245,11 +245,6 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 
 				// 更新 lag 指标
 				updateLagMetrics();
-
-				// 清理离线的消费者组
-				if (properties.isAutoCleanOfflineConsumers()) {
-					cleanOfflineConsumers();
-				}
 
 				if (pendingCount > 0) {
 					// 尝试认领超时消息
@@ -329,23 +324,23 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 				if (keyBytes != null) {
 					try {
 						// 获取消费者组信息 - 返回 XInfoGroups 对象
-						org.springframework.data.redis.connection.stream.StreamInfo.XInfoGroups groups = 
+						StreamInfo.XInfoGroups groups =
 							connection.streamCommands().xInfoGroups(keyBytes);
 						if (groups != null) {
 							// 查找匹配的消费者组 - 使用迭代器
-							java.util.Iterator<org.springframework.data.redis.connection.stream.StreamInfo.XInfoGroup> iterator = groups.iterator();
+							Iterator<StreamInfo.XInfoGroup> iterator = groups.iterator();
 							while (iterator.hasNext()) {
-								org.springframework.data.redis.connection.stream.StreamInfo.XInfoGroup group = iterator.next();
+								StreamInfo.XInfoGroup group = iterator.next();
 								// 尝试通过 toString 解析 group 信息
 								String groupStr = group.toString();
-								if (groupStr.contains("consumerGroup=" + consumerGroup)) {
+								if (groupStr.contains("name=" + consumerGroup)) {
 									// 从字符串中提取 lag 值（简单方式）
 									// 格式类似：XInfoGroup[consumerGroup=group,lag=10,...]
 									int lagIndex = groupStr.indexOf("lag=");
 									if (lagIndex != -1) {
 										int endIndex = groupStr.indexOf(',', lagIndex);
 										if (endIndex == -1) {
-											endIndex = groupStr.indexOf(']', lagIndex);
+											endIndex = groupStr.indexOf('}', lagIndex);
 										}
 										if (endIndex != -1) {
 											String lagStr = groupStr.substring(lagIndex + 4, endIndex);
@@ -383,7 +378,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 				if (keyBytes != null) {
 					try {
 						// 获取所有消费者信息 - 使用 XInfoConsumers 对象
-						org.springframework.data.redis.connection.stream.StreamInfo.XInfoConsumers consumers = 
+						StreamInfo.XInfoConsumers consumers =
 							connection.streamCommands().xInfoConsumers(keyBytes, consumerGroup);
 						if (consumers != null) {
 							long timeoutMillis = properties.getOfflineConsumerTimeoutMinutes() * 60 * 1000;
@@ -400,7 +395,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 									logger.info("Cleaning offline consumer: {}, idle time: {} ms", consumerName, idleMillis);
 									try {
 										// 直接删除该消费者
-										connection.streamCommands().xGroupDelConsumer(keyBytes, consumerGroup, consumerName);
+										connection.streamCommands().xGroupDelConsumer(keyBytes, groupName, consumerName);
 										logger.info("Successfully deleted offline consumer: {}", consumerName);
 									} catch (Exception e) {
 										logger.error("Error deleting consumer: {}", consumerName, e);
@@ -509,6 +504,10 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 	public void afterSingletonsInstantiated() {
 		this.consumerGroup = properties.getConsumerGroup();
 		this.consumerName = properties.getInstanceId();
+		// 清理离线的消费者组
+		if (properties.isAutoCleanOfflineConsumers()) {
+			cleanOfflineConsumers();
+		}
 		// 把所有实现了 CacheCleanHandler 接口的bean找出来
 		Map<String, CacheCleanHandler> handlerBeans = applicationContext.getBeansOfType(CacheCleanHandler.class);
 
