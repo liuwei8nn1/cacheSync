@@ -46,7 +46,6 @@ public class TestConfig {
         properties.setBlockMs(1000);
         properties.setMaxLen(100);
         properties.setThreadPoolSize(1);
-        properties.setGracefulShutdownTimeoutMs(5000);
         properties.setEnableMetrics(true);
         return properties;
     }

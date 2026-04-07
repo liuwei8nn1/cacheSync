@@ -24,7 +24,6 @@ public class CacheSyncProperties implements ApplicationContextAware {
     private long blockMs = 5000;
     private long maxLen = 10000;
     private int threadPoolSize = 1;
-    private long gracefulShutdownTimeoutMs = 30000;
     private boolean enableMetrics = true;
     private boolean autoCleanOfflineConsumers = false;
     private long offlineConsumerTimeoutMinutes = 60 * 8;
@@ -160,14 +159,6 @@ public class CacheSyncProperties implements ApplicationContextAware {
 
     public void setThreadPoolSize(int threadPoolSize) {
         this.threadPoolSize = threadPoolSize;
-    }
-
-    public long getGracefulShutdownTimeoutMs() {
-        return gracefulShutdownTimeoutMs;
-    }
-
-    public void setGracefulShutdownTimeoutMs(long gracefulShutdownTimeoutMs) {
-        this.gracefulShutdownTimeoutMs = gracefulShutdownTimeoutMs;
     }
 
     public boolean isEnableMetrics() {
