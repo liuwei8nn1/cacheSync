@@ -38,9 +38,9 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 	ApplicationContext applicationContext;
 
 	// 存储所有Handler的映射: type -> subType -> List<Handler>
-	private Map<String, Map<String, List<CacheCleanHandler>>> handlerMapping = new HashMap<>();
+	private final Map<String, Map<String, List<CacheCleanHandler>>> handlerMapping = new HashMap<>();
 	// 存储所有Handler的列表
-	private List<CacheCleanHandler> allHandlers = new ArrayList<>();
+	private final List<CacheCleanHandler> allHandlers = new ArrayList<>();
 
 	public CacheSyncConsumer(RedisTemplate<String, Object> redisTemplate,
 	                         CacheSyncProperties properties,
@@ -147,7 +147,6 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 						InternalMessage msg = InternalMessage.of(record);
 						String subType = msg.subType, type = msg.type, messageId = msg.messageId, cacheKey = msg.cacheKey;
 						Integer retrySize = msg.retrySize;
-						HashMap<String, String> metadata = msg.metadata;
 						if (msg.isValid()) {
 							try {
 								// 如果重试次数过大，直接ack抛弃
@@ -199,8 +198,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 				logger.error("Error consuming messages", e);
 				try {
 					Thread.sleep(1000);
-				} catch (InterruptedException ex) {
-					Thread.currentThread().interrupt();
+				} catch (InterruptedException ignored) {
 				}
 			}
 		}
@@ -256,7 +254,6 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 						InternalMessage msg = InternalMessage.of(record);
 						String subType = msg.subType, type = msg.type, messageId = msg.messageId, cacheKey = msg.cacheKey;
 						Integer retrySize = msg.retrySize;
-						HashMap<String, String> metadata = msg.metadata;
 						if (msg.isValid()) {
 							try {
 								// 如果重试次数过大，直接ack抛弃
@@ -321,9 +318,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 							connection.streamCommands().xInfoGroups(keyBytes);
 						if (groups != null) {
 							// 查找匹配的消费者组 - 使用迭代器
-							Iterator<StreamInfo.XInfoGroup> iterator = groups.iterator();
-							while (iterator.hasNext()) {
-								StreamInfo.XInfoGroup group = iterator.next();
+							for (StreamInfo.XInfoGroup group : groups) {
 								// 尝试通过 toString 解析 group 信息
 								String groupStr = group.toString();
 								if (groupStr.contains("name=" + consumerGroup)) {
@@ -362,7 +357,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 
 	/**
 	 * 清理离线的消费者组
-	 * 通过 XINFO CONSUMERS 命令检查每个消费者的最后活跃时间，清理超时的消费者
+	 * 通过 xInfoConsumers 命令检查每个消费者的最后活跃时间，清理超时的消费者
 	 */
 	private void cleanOfflineConsumers() {
 		try {
@@ -376,9 +371,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 						if (consumers != null) {
 							long timeoutMillis = properties.getOfflineConsumerTimeoutMinutes() * 60 * 1000;
 							// 遍历所有消费者 - 使用迭代器
-							Iterator<StreamInfo.XInfoConsumer> iterator = consumers.iterator();
-							while (iterator.hasNext()) {
-								StreamInfo.XInfoConsumer consumer = iterator.next();
+							for (StreamInfo.XInfoConsumer consumer : consumers) {
 								String groupName = consumer.groupName();
 								String consumerName = consumer.consumerName();
 								Duration idleTime = consumer.idleTime();
