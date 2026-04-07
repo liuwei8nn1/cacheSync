@@ -84,17 +84,10 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 			return;
 		}
 		running.set(false);
-		try {
-			// 关闭定时任务线程池
-			scheduledExecutorService.shutdown();
-			scheduledExecutorService.awaitTermination(properties.getGracefulShutdownTimeoutMs(), TimeUnit.MILLISECONDS);
-
-			// 关闭消息消费线程池
-			executorService.shutdown();
-			executorService.awaitTermination(properties.getGracefulShutdownTimeoutMs(), TimeUnit.MILLISECONDS);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-		}
+		// 关闭定时任务线程池
+		scheduledExecutorService.shutdownNow();
+		// 关闭消息消费线程池
+		executorService.shutdownNow();
 	}
 
 	private void createConsumerGroup() {
