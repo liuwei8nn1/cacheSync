@@ -1,9 +1,9 @@
 package org.cache.sync.config;
 
-import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.UUID;
 
+import org.cache.sync.utils.IpUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.ApplicationContext;
@@ -81,23 +81,7 @@ public class CacheSyncProperties implements ApplicationContextAware {
         }
         try {
             // 添加 IP 地址
-            sb.append(InetAddress.getLocalHost().getHostAddress());
-            // 添加进程 ID（兼容 Java 8+）
-            // long pid;
-            // try {
-            //     // 尝试使用 Java 9+ 的 ProcessHandle
-            //     pid = ProcessHandle.current().pid();
-            // } catch (NoClassDefFoundError e) {
-            //     // Java 8 兼容方案 - 使用 ManagementFactory
-            //     try {
-            //         String runtimeName = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
-            //         pid = Long.parseLong(runtimeName.split("@")[0]);
-            //     } catch (Exception ex) {
-            //         // 最后的备选方案
-            //         pid = Thread.currentThread().getId();
-            //     }
-            // }
-            // sb.append("-").append(pid);
+            sb.append(IpUtils.getLocalHost());
         } catch (UnknownHostException e) {
             // 如果无法获取 IP 地址，使用随机值
             sb.append("unknown-").append(UUID.randomUUID().toString());
