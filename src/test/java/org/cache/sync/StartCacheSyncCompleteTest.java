@@ -6,6 +6,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.cache.sync.config.CacheSyncProperties;
+import org.cache.sync.config.RedisKey;
 import org.cache.sync.core.CacheSyncConsumer;
 import org.cache.sync.core.CacheSyncPublisher;
 import org.cache.sync.metrics.CacheSyncMetrics;
@@ -70,8 +71,10 @@ public class StartCacheSyncCompleteTest {
             cacheSyncPublisher.publishCacheClean("test", "default", cacheKey);
             System.out.println("消息发布成功: " + cacheKey);
             
-            // 检查消息是否已发布到 Redis
-            Long size = redisTemplate.opsForStream().size(properties.getStreamKey());
+            // 检查消息是否已发布到 Redis 流
+            // 构建流 key
+            String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
+            Long size = redisTemplate.opsForStream().size(streamKey);
             System.out.println("Stream 中的消息数量: " + size);
             Thread.sleep(1000 * 35);
             assertTrue(size > 0, "消息未发布到 Redis");
@@ -94,8 +97,10 @@ public class StartCacheSyncCompleteTest {
             cacheSyncPublisher.publishCacheClean("test", "metadata", cacheKey, metadata);
             System.out.println("消息发布成功: " + cacheKey + "，元数据: " + metadata);
             
-            // 检查消息是否已发布到 Redis
-            Long size = redisTemplate.opsForStream().size(properties.getStreamKey());
+            // 检查消息是否已发布到 Redis 流
+            // 构建流 key
+            String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
+            Long size = redisTemplate.opsForStream().size(streamKey);
             System.out.println("Stream 中的消息数量: " + size);
             assertTrue(size > 0, "消息未发布到 Redis");
         } catch (Exception e) {
@@ -122,6 +127,43 @@ public class StartCacheSyncCompleteTest {
             System.err.println("指标测试失败: " + e.getMessage());
             e.printStackTrace();
             assertTrue(false, "指标测试失败");
+        }
+    }
+
+    @Test
+    public void testDelayedMessage() {
+        System.out.println("测试延时消息");
+        try {
+            // 发布延时消息
+            String cacheKey = "test:key:4:delayed";
+            Map<String, String> metadata = new HashMap<>();
+            metadata.put("__delay", "2000"); // 2秒延时
+            cacheSyncPublisher.publishCacheClean("test", "delayed", cacheKey, metadata);
+            System.out.println("延时消息发布成功: " + cacheKey);
+            String delayedKey = RedisKey.calcDelayedKey(properties.getPrefixKey());
+            // 检查 zset 中是否有延时消息
+            Long zsetSize = redisTemplate.opsForZSet().size(delayedKey);
+            System.out.println("延时消息 zset 大小: " + zsetSize);
+            assertTrue(zsetSize > 0, "延时消息未存储到 zset");
+            
+            // 等待延时时间
+            System.out.println("等待 3 秒，等待延时消息处理...");
+            Thread.sleep(3000);
+            
+            // 检查 zset 中是否已处理完延时消息
+            zsetSize = redisTemplate.opsForZSet().size(delayedKey);
+            System.out.println("延时消息处理后 zset 大小: " + zsetSize);
+            
+            // 检查 stream 中是否有消息
+            // 构建流 key
+            String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
+            Long streamSize = redisTemplate.opsForStream().size(streamKey);
+            System.out.println("Stream 中的消息数量: " + streamSize);
+            assertTrue(streamSize > 0, "延时消息未发布到 stream");
+        } catch (Exception e) {
+            System.err.println("延时消息测试失败: " + e.getMessage());
+            e.printStackTrace();
+            assertTrue(false, "延时消息测试失败");
         }
     }
 

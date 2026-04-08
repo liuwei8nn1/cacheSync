@@ -39,7 +39,7 @@ public class TestConfig {
     public CacheSyncProperties cacheSyncProperties() {
         CacheSyncProperties properties = new CacheSyncProperties();
         properties.setEnabled(true);
-        properties.setStreamKey("cache:sync:stream:test");
+        properties.setPrefixKey("TEST:cache:sync");
         properties.setConsumerGroupPrefix("Test");
         properties.setMessageTimeoutMs(5000);
         properties.setBatchSize(10);

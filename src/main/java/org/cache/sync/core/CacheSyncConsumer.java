@@ -1,6 +1,7 @@
 package org.cache.sync.core;
 
 import org.cache.sync.config.CacheSyncProperties;
+import org.cache.sync.config.RedisKey;
 import org.cache.sync.metrics.CacheSyncMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,7 +96,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 			// 确保 Stream 存在
 			try {
 				// 尝试添加一个空消息来创建 Stream（如果不存在）
-				redisTemplate.opsForStream().add(properties.getStreamKey(), new HashMap<>());
+				redisTemplate.opsForStream().add(RedisKey.calcStreamKey(properties.getPrefixKey()), new HashMap<>());
 			} catch (Exception e) {
 				// Stream 可能已经存在，忽略异常
 			}
@@ -103,7 +104,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 			// 尝试创建消费者组
 			try {
 				redisTemplate.opsForStream().createGroup(
-						properties.getStreamKey(),
+						RedisKey.calcStreamKey(properties.getPrefixKey()),
 						consumerGroup
 				);
 				logger.info("Created consumer group: {}", consumerGroup);
@@ -132,13 +133,14 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 	private void consumeMessages(String consumerName) {
 		while (running.get()) {
 			try {
+				String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
 				// 使用 RedisTemplate 读取消息
 				List<MapRecord<String, Object, Object>> messages = redisTemplate.opsForStream().read(
 						Consumer.from(consumerGroup, consumerName),
 						StreamReadOptions.empty()
 								.count(properties.getBatchSize())
 								.block(Duration.ofMillis(properties.getBlockMs())),
-						StreamOffset.create(properties.getStreamKey(), ReadOffset.lastConsumed())
+						StreamOffset.create(RedisKey.calcStreamKey(properties.getPrefixKey()), ReadOffset.lastConsumed())
 				);
 
 				if (messages != null && !messages.isEmpty()) {
@@ -154,7 +156,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 									logger.warn("Message exceeded max retry size, discarding: type={}, subType={}, cacheKey={}, retrySize={}",
 											type, subType, cacheKey, retrySize);
 									redisTemplate.opsForStream().acknowledge(
-											properties.getStreamKey(),
+											streamKey,
 											consumerGroup,
 											messageId
 									);
@@ -165,7 +167,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 								// 处理缓存清理
 								handleCacheClean(msg);
 								// 确认消息
-								redisTemplate.opsForStream().acknowledge(properties.getStreamKey(), consumerGroup, messageId);
+								redisTemplate.opsForStream().acknowledge(streamKey, consumerGroup, messageId);
 
 								metrics.incrementConsumedMessages();
 							} catch (Exception e) {
@@ -173,14 +175,14 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 								metrics.incrementFailedMessages();
 
 								// 直接ack旧消息
-								redisTemplate.opsForStream().acknowledge(properties.getStreamKey(), consumerGroup, messageId);
+								redisTemplate.opsForStream().acknowledge(streamKey, consumerGroup, messageId);
 
 								// 重新发送一条新消息，带上重试次数
 								try {
 									// 修改次数
-									messageData.put(Constants.RETRY_SIZE, retrySize + 1);
+									messageData.put(InternalMessage.RETRY_SIZE, retrySize + 1);
 									// 发送新消息
-									redisTemplate.opsForStream().add(properties.getStreamKey(), messageData);
+									redisTemplate.opsForStream().add(streamKey, messageData);
 									logger.info("Resent message with increased retry size: type={}, subType={}, cacheKey={}, retrySize={}",
 											type, subType, cacheKey, retrySize + 1);
 								} catch (Exception ex) {
@@ -189,7 +191,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 							}
 						} else {
 							// 直接ack
-							redisTemplate.opsForStream().acknowledge(properties.getStreamKey(), consumerGroup, messageId);
+							redisTemplate.opsForStream().acknowledge(streamKey, consumerGroup, messageId);
 							logger.warn("Invalid message format: cacheKey={}, type={}, subType={}", cacheKey, type, subType);
 						}
 					}
@@ -225,9 +227,10 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 			// 确保消费者组存在
 			createConsumerGroup();
 
+			String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
 			// 使用 RedisTemplate 查看 Pending 消息
 			PendingMessagesSummary pendingSummary = redisTemplate.opsForStream().pending(
-					properties.getStreamKey(),
+					streamKey,
 					consumerGroup
 			);
 			if (pendingSummary != null) {
@@ -242,7 +245,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 					// 从选区创建新的临时文件 使用 RedisTemplate 的 claim 方法
 					List<MapRecord<String, Object, Object>> claimedMessages =
 							redisTemplate.opsForStream().claim(
-									properties.getStreamKey(),
+									streamKey,
 									consumerGroup,
 									consumerName,
 									java.time.Duration.ofMillis(properties.getMessageTimeoutMs()),
@@ -260,7 +263,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 								if (retrySize > properties.getMaxRetry()) {
 									logger.warn("Claimed message exceeded max retry size, discarding: type={}, subType={}, cacheKey={}, retrySize={}",
 											type, subType, cacheKey, retrySize);
-									redisTemplate.opsForStream().acknowledge(properties.getStreamKey(), consumerGroup, messageId);
+									redisTemplate.opsForStream().acknowledge(streamKey, consumerGroup, messageId);
 									metrics.incrementDiscardedMessages();
 									continue;
 								}
@@ -268,21 +271,21 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 								// 处理缓存清理
 								handleCacheClean(msg);
 								// 确认消息
-								redisTemplate.opsForStream().acknowledge(properties.getStreamKey(), consumerGroup, messageId);
+								redisTemplate.opsForStream().acknowledge(streamKey, consumerGroup, messageId);
 								metrics.incrementConsumedMessages();
 							} catch (Exception e) {
 								logger.error("Failed to handle claimed cache clean message: type={}, subType={}, cacheKey={}", type, subType, cacheKey, e);
 								metrics.incrementFailedMessages();
 
 								// 直接ack旧消息
-								redisTemplate.opsForStream().acknowledge(properties.getStreamKey(), consumerGroup, messageId);
+								redisTemplate.opsForStream().acknowledge(streamKey, consumerGroup, messageId);
 
 								// 重新发送一条新消息，带上重试次数
 								try {
 									// 修改次数
-									messageData.put(Constants.RETRY_SIZE, retrySize + 1);
+									messageData.put(InternalMessage.RETRY_SIZE, retrySize + 1);
 									// 发送新消息
-									redisTemplate.opsForStream().add(properties.getStreamKey(), messageData);
+									redisTemplate.opsForStream().add(streamKey, messageData);
 									logger.info("Resent claimed message with increased retry size: type={}, subType={}, cacheKey={}, retrySize={}",
 											msg.type, msg.subType, msg.cacheKey, msg.retrySize + 1);
 								} catch (Exception ex) {
@@ -291,7 +294,7 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 							}
 						} else {
 							// 直接ack
-							redisTemplate.opsForStream().acknowledge(properties.getStreamKey(), consumerGroup, messageId);
+							redisTemplate.opsForStream().acknowledge(streamKey, consumerGroup, messageId);
 							logger.warn("Invalid claimed message format: cacheKey={}, type={}, subType={}", cacheKey, type, subType);
 						}
 					}
@@ -308,9 +311,10 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 	 */
 	private void updateLagMetrics() {
 		try {
+			String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
 			// 使用 RedisCallback 直接访问底层连接，执行 XINFO GROUPS 命令
 			redisTemplate.execute((RedisCallback<?>) connection -> {
-				byte[] keyBytes = redisTemplate.getStringSerializer().serialize(properties.getStreamKey());
+				byte[] keyBytes = redisTemplate.getStringSerializer().serialize(streamKey);
 				if (keyBytes != null) {
 					try {
 						// 获取消费者组信息 - 返回 XInfoGroups 对象
@@ -361,8 +365,9 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 	 */
 	private void cleanOfflineConsumers() {
 		try {
+			String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
 			redisTemplate.execute((RedisCallback<?>) connection -> {
-				byte[] keyBytes = redisTemplate.getStringSerializer().serialize(properties.getStreamKey());
+				byte[] keyBytes = redisTemplate.getStringSerializer().serialize(streamKey);
 				if (keyBytes != null) {
 					try {
 						// 获取所有消费者信息 - 使用 XInfoConsumers 对象
@@ -542,53 +547,6 @@ public class CacheSyncConsumer implements ApplicationContextAware, SmartInitiali
 	public void destroy() {
 		// 停止消费者
 		stop();
-	}
-
-	public static class InternalMessage {
-
-		public String messageId;
-		public String type;
-		public String subType;
-		public String cacheKey;
-		public Integer retrySize;
-		public Long timestamp;
-		public HashMap<String, String> metadata;
-
-		public InternalMessage() {
-		}
-
-		boolean isValid() {
-			return cacheKey != null && type != null && subType != null;
-		}
-
-		static InternalMessage of(MapRecord<String, Object, Object> record) {
-			InternalMessage internalMessage = new InternalMessage();
-			internalMessage.messageId = record.getId().getValue();
-			Map<Object, Object> messageData = record.getValue();
-			// 解析消息
-			internalMessage.metadata = new HashMap<>();
-			int retrySize = 0;
-			for (Map.Entry<Object, Object> dataEntry : messageData.entrySet()) {
-				String key = String.valueOf(dataEntry.getKey());
-				String value = String.valueOf(dataEntry.getValue());
-				if (Constants.CACHE_KEY.equals(key)) {
-					internalMessage.cacheKey = value;
-				} else if (Constants.TYPE.equals(key)) {
-					internalMessage.type = value;
-				} else if (Constants.SUB_TYPE.equals(key)) {
-					internalMessage.subType = value;
-				} else if (Constants.TIMESTAMP.equals(key)) {
-					internalMessage.timestamp = Long.parseLong(value);
-				} else if (Constants.RETRY_SIZE.equals(key)) {
-					retrySize = Integer.parseInt(value);
-				} else {
-					internalMessage.metadata.put(key, value);
-				}
-			}
-			internalMessage.retrySize = retrySize;
-			return internalMessage;
-		}
-
 	}
 
 }

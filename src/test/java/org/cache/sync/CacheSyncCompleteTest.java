@@ -6,6 +6,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.cache.sync.config.CacheSyncProperties;
+import org.cache.sync.config.RedisKey;
 import org.cache.sync.core.CacheSyncConsumer;
 import org.cache.sync.core.CacheSyncPublisher;
 import org.cache.sync.metrics.CacheSyncMetrics;
@@ -71,8 +72,10 @@ public class CacheSyncCompleteTest {
             cacheSyncPublisher.publishCacheClean("test", "default", cacheKey);
             System.out.println("消息发布成功: " + cacheKey);
             
-            // 检查消息是否已发布到 Redis
-            Long size = redisTemplate.opsForStream().size(properties.getStreamKey());
+            // 检查消息是否已发布到 Redis 流
+            // 构建流 key
+            String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
+            Long size = redisTemplate.opsForStream().size(streamKey);
             System.out.println("Stream 中的消息数量: " + size);
             Thread.sleep(1000 * 60);
             assertTrue(size > 0, "消息未发布到 Redis");
@@ -95,8 +98,10 @@ public class CacheSyncCompleteTest {
             cacheSyncPublisher.publishCacheClean("test", "metadata", cacheKey, metadata);
             System.out.println("消息发布成功: " + cacheKey + "，元数据: " + metadata);
             
-            // 检查消息是否已发布到 Redis
-            Long size = redisTemplate.opsForStream().size(properties.getStreamKey());
+            // 检查消息是否已发布到 Redis 流
+            // 构建流 key
+            String streamKey = RedisKey.calcStreamKey(properties.getPrefixKey());
+            Long size = redisTemplate.opsForStream().size(streamKey);
             System.out.println("Stream 中的消息数量: " + size);
             assertTrue(size > 0, "消息未发布到 Redis");
         } catch (Exception e) {

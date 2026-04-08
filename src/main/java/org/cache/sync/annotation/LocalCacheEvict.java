@@ -18,5 +18,10 @@ public @interface LocalCacheEvict {
      * 是否是事务提交之后执行
      */
     boolean afterTransaction() default true;
+    
+    /**
+     * 延时删除时间（毫秒），默认0表示立即删除
+     */
+    long delay() default 0;
 
 }

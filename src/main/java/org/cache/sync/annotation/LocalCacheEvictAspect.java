@@ -1,17 +1,21 @@
 package org.cache.sync.annotation;
 
+import org.cache.sync.config.CacheSyncProperties;
 import org.cache.sync.core.CacheSyncPublisher;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.cache.sync.core.InternalMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 
 import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
 
 @Aspect
 public class LocalCacheEvictAspect {
@@ -38,7 +42,11 @@ public class LocalCacheEvictAspect {
         String subType = annotation.subType();
         String cacheKey = evaluateExpression(cacheKeyExpression, joinPoint);
         boolean afterTransaction = annotation.afterTransaction();
-        cacheSyncPublisher.publishCacheClean(type, subType, cacheKey, afterTransaction);
+        long delay = annotation.delay();
+        // 将 delay 参数添加到 metadata 中
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put(InternalMessage.DELAY, String.valueOf(delay));
+        cacheSyncPublisher.publishCacheClean(type, subType, cacheKey, metadata, afterTransaction);
     }
 
     private String evaluateExpression(String expression, JoinPoint joinPoint) {

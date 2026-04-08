@@ -13,6 +13,7 @@
 - **监控指标**：暴露 Micrometer 指标，便于监控系统运行状态。
 - **类型匹配**：支持基于 type 和 subType 的缓存清理处理器匹配机制，实现精细化缓存管理。
 - **事务支持**：支持在事务提交后发送缓存清理消息，确保数据一致性。
+- **延时消息**：支持发送延时缓存清理消息，适用于需要延迟清理缓存的场景。
 
 ## 2. 技术实现
 
@@ -20,6 +21,7 @@
 - **广播机制**：每个实例创建独立的消费者组，确保每个实例都能消费所有消息。
 - **故障恢复**：定期扫描 Pending 消息，认领超时消息。
 - **Stream 清理**：通过配置限制 Stream 长度，避免内存溢出。
+- **延时消息**：使用 Redis ZSET 存储延时消息，通过独立线程定期扫描到期消息并发布到 Stream。
 
 ## 3. 快速开始
 
@@ -114,6 +116,19 @@ public class UserService {
 
 		// 广播清理本地缓存
 		cacheSyncPublisher.publishCacheClean("user", "profile", "user:" + userId, metadata, true);
+	}
+
+	// 发送延时缓存清理消息（2秒后执行）
+	public void updateUserStatus(String userId) {
+		// 更新用户状态
+		userDao.updateStatus(userId, "active");
+
+		// 构建元数据
+		Map<String, String> metadata = new HashMap<>();
+		metadata.put("operation", "update");
+
+		// 广播延时清理本地缓存
+		cacheSyncPublisher.publishCacheClean("user", "status", "user:status:" + userId, 2000, metadata, true);
 	}
 
 }
@@ -214,6 +229,7 @@ public class UserCacheCleanHandler implements CacheCleanHandler {
 - 消息发布功能正常
 - 带元数据的消息发布功能正常
 - 监控指标功能正常
+- 延时消息功能正常
 
 ## 10. 版本历史
 

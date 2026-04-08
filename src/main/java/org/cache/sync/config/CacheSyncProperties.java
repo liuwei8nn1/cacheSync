@@ -1,5 +1,9 @@
 package org.cache.sync.config;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.UUID;
+
 import org.springframework.beans.BeansException;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.ApplicationContext;
@@ -7,16 +11,10 @@ import org.springframework.context.ApplicationContextAware;
 import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
 
-import java.io.File;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.util.UUID;
-
 @ConfigurationProperties(prefix = "cache.sync")
 public class CacheSyncProperties implements ApplicationContextAware {
-
     private boolean enabled = false;
-    private String streamKey = "cache:sync:stream";
+    private String prefixKey = "cache:sync";
     private String consumerGroupPrefix = "";
     private long messageTimeoutMs = 300000;
     private int maxRetry = 3;
@@ -38,12 +36,12 @@ public class CacheSyncProperties implements ApplicationContextAware {
         this.enabled = enabled;
     }
 
-    public String getStreamKey() {
-        return streamKey;
+    public String getPrefixKey() {
+        return prefixKey;
     }
 
-    public void setStreamKey(String streamKey) {
-        this.streamKey = streamKey;
+    public void setPrefixKey(String prefixKey) {
+        this.prefixKey = prefixKey;
     }
 
     public String getConsumerGroup() {
